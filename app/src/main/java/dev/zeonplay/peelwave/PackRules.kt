@@ -9,11 +9,22 @@ data class StickerFileFacts(
     val mimeType: String = "image/webp"
 )
 
+data class TrayIconFacts(
+    val exists: Boolean,
+    val width: Int,
+    val height: Int,
+    val bytes: Long,
+    val mimeType: String
+)
+
 object PackRules {
     const val MIN_STICKERS = 3
     const val MAX_STICKERS = 30
+    const val MAX_PACKS = 10
     const val CANVAS_SIZE = 512
     const val MAX_STATIC_BYTES = 100 * 1024L
+    const val TRAY_ICON_SIZE = 96
+    const val MAX_TRAY_ICON_BYTES = 50 * 1024L
 
     fun validateStickerCount(count: Int): List<String> = buildList {
         if (count < MIN_STICKERS) {
@@ -39,6 +50,22 @@ object PackRules {
             if (file.bytes <= 0L || file.bytes > MAX_STATIC_BYTES) {
                 add(file.name + ": ukuran file harus di atas 0 dan maksimal 100 KB.")
             }
+        }
+    }
+
+    fun validateTrayIcon(icon: TrayIconFacts): List<String> = buildList {
+        if (!icon.exists) {
+            add("Ikon pack belum disiapkan. Pilih ikon pack terlebih dahulu.")
+            return@buildList
+        }
+        if (icon.width != TRAY_ICON_SIZE || icon.height != TRAY_ICON_SIZE) {
+            add("Ikon WhatsApp harus berukuran 96 × 96 piksel.")
+        }
+        if (icon.mimeType != "image/png") {
+            add("Ikon WhatsApp harus berformat PNG.")
+        }
+        if (icon.bytes <= 0L || icon.bytes > MAX_TRAY_ICON_BYTES) {
+            add("Ukuran ikon WhatsApp harus di atas 0 dan maksimal 50 KB.")
         }
     }
 

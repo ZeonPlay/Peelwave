@@ -1,6 +1,8 @@
 package dev.zeonplay.peelwave
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -114,7 +116,9 @@ private data class StickerPack(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val author: String,
-    val assets: List<StickerAsset> = emptyList()
+    val assets: List<StickerAsset> = emptyList(),
+    val iconSourceFile: String? = null,
+    val trayIconFile: String? = null
 )
 
 private data class RenderOutcome(val fileName: String? = null, val error: String? = null)
@@ -156,6 +160,7 @@ private fun PeelwaveApp() {
     var selectedAssetId by remember { mutableStateOf<String?>(null) }
     var showCreatePack by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
 
     val selectedPack = packs.firstOrNull { it.id == selectedPackId }
     val selectedAsset = selectedPack?.assets?.firstOrNull { it.id == selectedAssetId }
@@ -179,6 +184,64 @@ private fun PeelwaveApp() {
                 })
             } else pack
         })
+    }
+
+    val backupExporter = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                val error = withContext(Dispatchers.IO) { store.exportBackup(uri) }
+                statusMessage = if (error == null) {
+                    "Backup berhasil diekspor."
+                } else {
+                    "Ekspor backup gagal: $error"
+                }
+            }
+        }
+    }
+    val backupImporter = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) pendingRestoreUri = uri
+    }
+
+    val iconPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        val targetPackId = selectedPackId
+        if (uri != null && targetPackId != null) {
+            scope.launch {
+                val copiedName = withContext(Dispatchers.IO) { store.importImage(uri) }
+                if (copiedName == null) {
+                    statusMessage = "Ikon tidak bisa dibuka. Coba gambar PNG, JPEG, atau WebP."
+                } else {
+                    val trayIcon = withContext(Dispatchers.IO) {
+                        store.renderTrayIcon(copiedName, targetPackId)
+                    }
+                    val oldPack = packs.firstOrNull { it.id == targetPackId }
+                    if (trayIcon == null || oldPack == null) {
+                        withContext(Dispatchers.IO) {
+                            store.sourceFile(copiedName).delete()
+                            trayIcon?.let { store.deleteTrayIcon(it) }
+                        }
+                        statusMessage = "Ikon tidak bisa diproses. Pilih gambar lain."
+                    } else {
+                        savePacks(packs.map { pack ->
+                            if (pack.id == targetPackId) {
+                                pack.copy(iconSourceFile = copiedName, trayIconFile = trayIcon)
+                            } else pack
+                        })
+                        if (oldPack.iconSourceFile != null && oldPack.iconSourceFile != copiedName) {
+                            withContext(Dispatchers.IO) {
+                                store.sourceFile(oldPack.iconSourceFile).delete()
+                            }
+                        }
+                        statusMessage = "Ikon pack disimpan dan disiapkan untuk WhatsApp."
+                    }
+                }
+            }
+        }
     }
 
     val photoPicker = rememberLauncherForActivityResult(
@@ -252,16 +315,29 @@ private fun PeelwaveApp() {
             currentScreen == "home" -> HomeScreen(
                 packs = packs,
                 store = store,
-                onCreatePack = { showCreatePack = true },
+                onCreatePack = {
+                    if (packs.size >= PackRules.MAX_PACKS) {
+                        statusMessage = "WhatsApp mendukung maksimal 10 pack per aplikasi. Ekspor backup lalu hapus pack yang memang tidak lagi diperlukan."
+                    } else {
+                        showCreatePack = true
+                    }
+                },
                 onSelectPack = { pack ->
                     selectedPackId = pack.id
                     currentScreen = "pack"
+                },
+                onExportBackup = { backupExporter.launch("Peelwave-backup.zip") },
+                onImportBackup = {
+                    backupImporter.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
                 }
             )
             currentScreen == "pack" && selectedPack != null -> PackScreen(
                 pack = selectedPack,
                 store = store,
                 onBack = { currentScreen = "home"; selectedPackId = null },
+                onSetIcon = {
+                    iconPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
                 onImport = {
                     if (selectedPack.assets.size >= PackRules.MAX_STICKERS) {
                         statusMessage = "Pack sudah mencapai batas 30 item."
@@ -290,8 +366,27 @@ private fun PeelwaveApp() {
                     scope.launch {
                         val report = withContext(Dispatchers.IO) { store.validatePack(selectedPack) }
                         statusMessage = if (report.isEmpty()) {
-                            "Validasi file lolos. Integrasi tambah ke WhatsApp belum aktif."
+                            "Pack lolos validasi sticker dan ikon."
                         } else report.joinToString(" • ")
+                    }
+                },
+                onAddToWhatsApp = {
+                    scope.launch {
+                        val report = withContext(Dispatchers.IO) { store.validatePack(selectedPack) }
+                        if (report.isNotEmpty()) {
+                            statusMessage = report.joinToString(" • ")
+                        } else {
+                            val intent = Intent("com.whatsapp.intent.action.ENABLE_STICKER_PACK").apply {
+                                putExtra("sticker_pack_id", selectedPack.id)
+                                putExtra("sticker_pack_authority", context.packageName + ".stickercontentprovider")
+                                putExtra("sticker_pack_name", selectedPack.name)
+                            }
+                            try {
+                                context.startActivity(intent)
+                            } catch (_: ActivityNotFoundException) {
+                                statusMessage = "WhatsApp tidak ditemukan atau versi yang terpasang belum mendukung penambahan pack."
+                            }
+                        }
                     }
                 }
             )
@@ -313,8 +408,18 @@ private fun PeelwaveApp() {
             else -> HomeScreen(
                 packs = packs,
                 store = store,
-                onCreatePack = { showCreatePack = true },
-                onSelectPack = { pack -> selectedPackId = pack.id; currentScreen = "pack" }
+                onCreatePack = {
+                    if (packs.size >= PackRules.MAX_PACKS) {
+                        statusMessage = "WhatsApp mendukung maksimal 10 pack per aplikasi. Ekspor backup lalu hapus pack yang memang tidak lagi diperlukan."
+                    } else {
+                        showCreatePack = true
+                    }
+                },
+                onSelectPack = { pack -> selectedPackId = pack.id; currentScreen = "pack" },
+                onExportBackup = { backupExporter.launch("Peelwave-backup.zip") },
+                onImportBackup = {
+                    backupImporter.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                }
             )
         }
         }
@@ -355,6 +460,49 @@ private fun PeelwaveApp() {
             }
         )
     }
+
+    if (pendingRestoreUri != null) {
+        AlertDialog(
+            onDismissRequest = { pendingRestoreUri = null },
+            containerColor = SurfaceInk,
+            title = { Text("Pulihkan backup?", color = Foreground) },
+            text = {
+                Text(
+                    "Pemulihan akan mengganti semua pack dan file lokal saat ini dengan isi backup. Pastikan kamu sudah mengekspor backup terbaru jika masih membutuhkannya.",
+                    color = Muted
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val restoreUri = pendingRestoreUri
+                    pendingRestoreUri = null
+                    if (restoreUri != null) {
+                        scope.launch {
+                            val (error, restoredPacks) = withContext(Dispatchers.IO) {
+                                val restoreError = store.restoreBackup(restoreUri)
+                                restoreError to if (restoreError == null) store.load() else emptyList()
+                            }
+                            if (error == null) {
+                                packs = restoredPacks
+                                selectedPackId = null
+                                selectedAssetId = null
+                                currentScreen = "home"
+                                statusMessage = "Backup dipulihkan. Data lokal sebelumnya telah diganti."
+                            } else {
+                                statusMessage = error
+                            }
+                        }
+                    }
+                }) { Text("Pulihkan", color = Color(0xFFFF9B91)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestoreUri = null }) {
+                    Text("Batal", color = Muted)
+                }
+            }
+        )
+    }
+
 }
 
 @Composable
@@ -362,7 +510,9 @@ private fun HomeScreen(
     packs: List<StickerPack>,
     store: LocalPackStore,
     onCreatePack: () -> Unit,
-    onSelectPack: (StickerPack) -> Unit
+    onSelectPack: (StickerPack) -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Spacer(Modifier.height(13.dp))
@@ -387,7 +537,27 @@ private fun HomeScreen(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 27.dp, bottom = 13.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onExportBackup,
+                modifier = Modifier.weight(1f).height(43.dp),
+                border = BorderStroke(1.dp, Hairline)
+            ) {
+                Text("Ekspor backup", color = Foreground, fontSize = 12.sp)
+            }
+            OutlinedButton(
+                onClick = onImportBackup,
+                modifier = Modifier.weight(1f).height(43.dp),
+                border = BorderStroke(1.dp, Hairline)
+            ) {
+                Text("Pulihkan backup", color = Foreground, fontSize = 12.sp)
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("PACK KAMU", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
@@ -445,8 +615,16 @@ private fun HomeScreen(
                                     .background(RaisedInk),
                                 contentAlignment = Alignment.Center
                             ) {
+                                val icon = pack.iconSourceFile?.let { store.sourceFile(it) }
                                 val cover = pack.assets.firstOrNull()
-                                if (cover != null) {
+                                if (icon != null && icon.isFile) {
+                                    AsyncImage(
+                                        model = icon,
+                                        contentDescription = "Ikon " + pack.name,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else if (cover != null) {
                                     AsyncImage(
                                         model = store.sourceFile(cover.sourceFile),
                                         contentDescription = "Pratinjau " + pack.name,
@@ -522,10 +700,12 @@ private fun PackScreen(
     store: LocalPackStore,
     onBack: () -> Unit,
     onImport: () -> Unit,
+    onSetIcon: () -> Unit,
     onSelectAsset: (StickerAsset) -> Unit,
     onRename: (String, String) -> Unit,
     onDelete: () -> Unit,
-    onValidate: () -> Unit
+    onValidate: () -> Unit,
+    onAddToWhatsApp: () -> Unit
 ) {
     var showPackInfo by remember(pack.id) { mutableStateOf(false) }
     var showDelete by remember(pack.id) { mutableStateOf(false) }
@@ -546,7 +726,19 @@ private fun PackScreen(
             StatPill(ready.toString() + " / 30 siap")
             StatPill((pack.assets.size - ready).toString() + " draft")
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = onSetIcon,
+            modifier = Modifier.fillMaxWidth().height(42.dp),
+            border = BorderStroke(1.dp, Hairline)
+        ) {
+            Text(
+                if (pack.iconSourceFile == null) "Pilih ikon pack" else "Ganti ikon pack",
+                color = Foreground,
+                fontSize = 13.sp
+            )
+        }
+        Spacer(Modifier.height(10.dp))
         Button(
             onClick = onImport,
             modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -558,15 +750,24 @@ private fun PackScreen(
         Spacer(Modifier.height(10.dp))
         OutlinedButton(
             onClick = onValidate,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
+            modifier = Modifier.fillMaxWidth().height(46.dp),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.dp, Hairline)
         ) {
-            Text("Validasi pack", color = Foreground)
+            Text("Periksa kesiapan pack", color = Foreground)
         }
         Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = onAddToWhatsApp,
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)
+        ) {
+            Text("Tambahkan ke WhatsApp", fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(6.dp))
         Text(
-            "Tambah ke WhatsApp belum aktif di build awal. Aksi ini baru akan dinyalakan setelah integrasinya diuji.",
+            "Pack harus berisi 3–30 sticker valid dan memiliki ikon 96 × 96. WhatsApp akan meminta konfirmasi sebelum menambahkannya.",
             color = Muted,
             fontSize = 12.sp,
             lineHeight = 17.sp
@@ -976,6 +1177,10 @@ private class LocalPackStore(context: Context) {
     private val exports = File(root, "exports").apply { mkdirs() }
     private val metadata = File(root, "packs.json")
 
+    fun exportBackup(uri: Uri): String? = ProjectBackup.export(appContext, root, uri)
+
+    fun restoreBackup(uri: Uri): String? = ProjectBackup.restore(appContext, root, uri)
+
     fun load(): List<StickerPack> {
         if (!metadata.exists()) return emptyList()
         return try {
@@ -1049,6 +1254,53 @@ private class LocalPackStore(context: Context) {
             sourceFile(asset.sourceFile).delete()
             asset.exportFile?.let { exportedFile(it).delete() }
         }
+        pack.iconSourceFile?.let { sourceFile(it).delete() }
+        pack.trayIconFile?.let { exportedFile(it).delete() }
+    }
+
+    fun deleteTrayIcon(name: String) {
+        exportedFile(name).delete()
+    }
+
+    fun renderTrayIcon(sourceName: String, packId: String): String? {
+        val source = sourceFile(sourceName)
+        if (!source.isFile) return null
+        val bitmap = decodeOriented(source) ?: return null
+        val size = PackRules.TRAY_ICON_SIZE
+        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val outputName = "tray-" + packId + ".png"
+        val outputFile = exportedFile(outputName)
+        return try {
+            val canvas = Canvas(output)
+            val scale = max(size.toFloat() / bitmap.width, size.toFloat() / bitmap.height)
+            val width = bitmap.width * scale
+            val height = bitmap.height * scale
+            val left = (size - width) / 2f
+            val top = (size - height) / 2f
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+            canvas.drawBitmap(bitmap, null, RectF(left, top, left + width, top + height), paint)
+            FileOutputStream(outputFile).use { stream ->
+                if (!output.compress(Bitmap.CompressFormat.PNG, 100, stream)) {
+                    outputFile.delete()
+                    return null
+                }
+            }
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(outputFile.absolutePath, options)
+            if (options.outWidth != size || options.outHeight != size ||
+                options.outMimeType != "image/png" ||
+                outputFile.length() !in 1L..PackRules.MAX_TRAY_ICON_BYTES
+            ) {
+                outputFile.delete()
+                null
+            } else outputName
+        } catch (_: Exception) {
+            outputFile.delete()
+            null
+        } finally {
+            bitmap.recycle()
+            output.recycle()
+        }
     }
 
     fun validatePack(pack: StickerPack): List<String> {
@@ -1065,7 +1317,26 @@ private class LocalPackStore(context: Context) {
                 mimeType = options.outMimeType ?: ""
             )
         }
-        return PackRules.validatePack(facts)
+        val issues = PackRules.validatePack(facts).toMutableList()
+        val draftCount = pack.assets.count { it.exportFile == null }
+        if (draftCount > 0) {
+            issues += "$draftCount sticker masih berupa draft. Selesaikan atau hapus draft sebelum menambahkan pack ke WhatsApp."
+        }
+        val trayFile = pack.trayIconFile?.let { exportedFile(it) }
+        val trayOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        if (trayFile != null && trayFile.isFile) {
+            BitmapFactory.decodeFile(trayFile.absolutePath, trayOptions)
+        }
+        issues += PackRules.validateTrayIcon(
+            TrayIconFacts(
+                exists = trayFile?.isFile == true,
+                width = trayOptions.outWidth,
+                height = trayOptions.outHeight,
+                bytes = trayFile?.takeIf { it.isFile }?.length() ?: 0L,
+                mimeType = trayOptions.outMimeType.orEmpty()
+            )
+        )
+        return issues
     }
 
     fun render(asset: StickerAsset): RenderOutcome {
@@ -1203,6 +1474,8 @@ private class LocalPackStore(context: Context) {
             .put("name", pack.name)
             .put("author", pack.author)
             .put("assets", assetsJson)
+            .put("iconSourceFile", pack.iconSourceFile ?: JSONObject.NULL)
+            .put("trayIconFile", pack.trayIconFile ?: JSONObject.NULL)
     }
 
     private fun packFromJson(json: JSONObject): StickerPack {
@@ -1244,7 +1517,9 @@ private class LocalPackStore(context: Context) {
             id = json.optString("id", UUID.randomUUID().toString()),
             name = json.optString("name", "Pack tanpa nama"),
             author = json.optString("author", ""),
-            assets = assetsList
+            assets = assetsList,
+            iconSourceFile = json.optString("iconSourceFile").takeIf { it.isNotBlank() && it != "null" },
+            trayIconFile = json.optString("trayIconFile").takeIf { it.isNotBlank() && it != "null" }
         )
     }
 }
