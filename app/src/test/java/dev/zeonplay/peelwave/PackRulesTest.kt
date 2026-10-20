@@ -34,6 +34,11 @@ class PackRulesTest {
     }
 
     @Test
+    fun nonWebpOutputIsRejected() {
+        assertFalse(PackRules.validateFiles(listOf(valid().copy(mimeType = "image/png"))).isEmpty())
+    }
+
+    @Test
     fun fileOverOneHundredKbIsRejected() {
         val issues = PackRules.validateFiles(listOf(valid().copy(bytes = 102_401)))
         assertEquals(1, issues.size)
