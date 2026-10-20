@@ -30,6 +30,8 @@ internal object ProjectBackup {
         if (!workspace.isDirectory) return "Folder proyek lokal tidak ditemukan."
         val metadata = File(workspace, "packs.json")
         if (!metadata.isFile) return "Metadata proyek tidak ditemukan."
+        val workspaceError = validateWorkspace(workspace)
+        if (workspaceError != null) return "Backup tidak bisa dibuat: $workspaceError"
 
         return try {
             val output = context.contentResolver.openOutputStream(destination, "w")
@@ -132,6 +134,8 @@ internal object ProjectBackup {
                 if (previous.exists()) previous.renameTo(workspace)
                 return "Backup tidak bisa dipasang. Data sebelumnya dipertahankan."
             }
+            File(workspace, "images").mkdirs()
+            File(workspace, "exports").mkdirs()
             previous.deleteRecursively()
             null
         } catch (error: Exception) {
@@ -196,6 +200,15 @@ internal object ProjectBackup {
                 val pack = packs.optJSONObject(packIndex)
                     ?: return "Data salah satu pack rusak."
                 if (pack.optString("name").isBlank()) return "Ada pack tanpa nama."
+                val iconValue = pack.opt("iconSourceFile")
+                if (iconValue != null && iconValue != JSONObject.NULL) {
+                    val iconName = iconValue.toString()
+                    if (!isSafeFileName(iconName)) return "Nama file ikon dalam backup tidak aman."
+                    val icon = File(workspace, "images/$iconName")
+                    if (!icon.isFile || icon.length() !in 1..MAX_ENTRY_BYTES) {
+                        return "Backup tidak lengkap: ikon pack tidak ditemukan atau terlalu besar."
+                    }
+                }
                 val assets = pack.optJSONArray("assets")
                     ?: return "Daftar sticker pada salah satu pack rusak."
                 if (assets.length() > 30) return "Backup memiliki pack dengan lebih dari 30 item."
