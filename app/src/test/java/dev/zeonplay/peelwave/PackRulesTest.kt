@@ -49,4 +49,47 @@ class PackRulesTest {
     fun missingFileIsRejected() {
         assertFalse(PackRules.validateFiles(listOf(valid().copy(exists = false))).isEmpty())
     }
+
+    private fun validTrayIcon() = TrayIconFacts(
+        exists = true,
+        width = 96,
+        height = 96,
+        bytes = 24_000,
+        mimeType = "image/png"
+    )
+
+    @Test
+    fun validWhatsAppTrayIconPasses() {
+        assertTrue(PackRules.validateTrayIcon(validTrayIcon()).isEmpty())
+    }
+
+    @Test
+    fun trayIconMustBeNinetySixPixels() {
+        assertTrue(
+            PackRules.validateTrayIcon(validTrayIcon().copy(width = 128))
+                .any { it.contains("96 × 96") }
+        )
+    }
+
+    @Test
+    fun trayIconMustBePngAndAtMostFiftyKb() {
+        val wrongType = PackRules.validateTrayIcon(validTrayIcon().copy(mimeType = "image/webp"))
+        val tooLarge = PackRules.validateTrayIcon(
+            validTrayIcon().copy(bytes = PackRules.MAX_TRAY_ICON_BYTES + 1)
+        )
+        assertTrue(wrongType.any { it.contains("PNG") })
+        assertTrue(tooLarge.any { it.contains("50 KB") })
+    }
+
+    @Test
+    fun missingTrayIconIsRejected() {
+        val issues = PackRules.validateTrayIcon(validTrayIcon().copy(exists = false))
+        assertFalse(issues.isEmpty())
+        assertTrue(issues.first().contains("belum disiapkan"))
+    }
+
+    @Test
+    fun whatsAppPackLimitIsTen() {
+        assertEquals(10, PackRules.MAX_PACKS)
+    }
 }
