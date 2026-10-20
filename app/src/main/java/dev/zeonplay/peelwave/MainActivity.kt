@@ -156,6 +156,7 @@ private fun PeelwaveApp() {
     var selectedAssetId by remember { mutableStateOf<String?>(null) }
     var showCreatePack by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
 
     val selectedPack = packs.firstOrNull { it.id == selectedPackId }
     val selectedAsset = selectedPack?.assets?.firstOrNull { it.id == selectedAssetId }
@@ -179,6 +180,26 @@ private fun PeelwaveApp() {
                 })
             } else pack
         })
+    }
+
+    val backupExporter = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                val error = withContext(Dispatchers.IO) { store.exportBackup(uri) }
+                statusMessage = if (error == null) {
+                    "Backup berhasil diekspor."
+                } else {
+                    "Ekspor backup gagal: $error"
+                }
+            }
+        }
+    }
+    val backupImporter = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) pendingRestoreUri = uri
     }
 
     val photoPicker = rememberLauncherForActivityResult(
@@ -256,6 +277,10 @@ private fun PeelwaveApp() {
                 onSelectPack = { pack ->
                     selectedPackId = pack.id
                     currentScreen = "pack"
+                },
+                onExportBackup = { backupExporter.launch("Peelwave-backup.zip") },
+                onImportBackup = {
+                    backupImporter.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
                 }
             )
             currentScreen == "pack" && selectedPack != null -> PackScreen(
@@ -314,7 +339,11 @@ private fun PeelwaveApp() {
                 packs = packs,
                 store = store,
                 onCreatePack = { showCreatePack = true },
-                onSelectPack = { pack -> selectedPackId = pack.id; currentScreen = "pack" }
+                onSelectPack = { pack -> selectedPackId = pack.id; currentScreen = "pack" },
+                onExportBackup = { backupExporter.launch("Peelwave-backup.zip") },
+                onImportBackup = {
+                    backupImporter.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                }
             )
         }
         }
@@ -355,6 +384,49 @@ private fun PeelwaveApp() {
             }
         )
     }
+
+    if (pendingRestoreUri != null) {
+        AlertDialog(
+            onDismissRequest = { pendingRestoreUri = null },
+            containerColor = SurfaceInk,
+            title = { Text("Pulihkan backup?", color = Foreground) },
+            text = {
+                Text(
+                    "Pemulihan akan mengganti semua pack dan file lokal saat ini dengan isi backup. Pastikan kamu sudah mengekspor backup terbaru jika masih membutuhkannya.",
+                    color = Muted
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val restoreUri = pendingRestoreUri
+                    pendingRestoreUri = null
+                    if (restoreUri != null) {
+                        scope.launch {
+                            val (error, restoredPacks) = withContext(Dispatchers.IO) {
+                                val restoreError = store.restoreBackup(restoreUri)
+                                restoreError to if (restoreError == null) store.load() else emptyList()
+                            }
+                            if (error == null) {
+                                packs = restoredPacks
+                                selectedPackId = null
+                                selectedAssetId = null
+                                currentScreen = "home"
+                                statusMessage = "Backup dipulihkan. Data lokal sebelumnya telah diganti."
+                            } else {
+                                statusMessage = error
+                            }
+                        }
+                    }
+                }) { Text("Pulihkan", color = Color(0xFFFF9B91)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestoreUri = null }) {
+                    Text("Batal", color = Muted)
+                }
+            }
+        )
+    }
+
 }
 
 @Composable
@@ -362,7 +434,9 @@ private fun HomeScreen(
     packs: List<StickerPack>,
     store: LocalPackStore,
     onCreatePack: () -> Unit,
-    onSelectPack: (StickerPack) -> Unit
+    onSelectPack: (StickerPack) -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Spacer(Modifier.height(13.dp))
@@ -387,7 +461,27 @@ private fun HomeScreen(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 27.dp, bottom = 13.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onExportBackup,
+                modifier = Modifier.weight(1f).height(43.dp),
+                border = BorderStroke(1.dp, Hairline)
+            ) {
+                Text("Ekspor backup", color = Foreground, fontSize = 12.sp)
+            }
+            OutlinedButton(
+                onClick = onImportBackup,
+                modifier = Modifier.weight(1f).height(43.dp),
+                border = BorderStroke(1.dp, Hairline)
+            ) {
+                Text("Pulihkan backup", color = Foreground, fontSize = 12.sp)
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("PACK KAMU", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
@@ -975,6 +1069,10 @@ private class LocalPackStore(context: Context) {
     private val images = File(root, "images").apply { mkdirs() }
     private val exports = File(root, "exports").apply { mkdirs() }
     private val metadata = File(root, "packs.json")
+
+    fun exportBackup(uri: Uri): String? = ProjectBackup.export(appContext, root, uri)
+
+    fun restoreBackup(uri: Uri): String? = ProjectBackup.restore(appContext, root, uri)
 
     fun load(): List<StickerPack> {
         if (!metadata.exists()) return emptyList()
