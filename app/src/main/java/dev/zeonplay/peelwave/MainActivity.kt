@@ -114,7 +114,8 @@ private data class StickerPack(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val author: String,
-    val assets: List<StickerAsset> = emptyList()
+    val assets: List<StickerAsset> = emptyList(),
+    val iconSourceFile: String? = null
 )
 
 private data class RenderOutcome(val fileName: String? = null, val error: String? = null)
@@ -202,6 +203,27 @@ private fun PeelwaveApp() {
         if (uri != null) pendingRestoreUri = uri
     }
 
+    val iconPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        val targetPackId = selectedPackId
+        if (uri != null && targetPackId != null) {
+            scope.launch {
+                val copiedName = withContext(Dispatchers.IO) { store.importImage(uri) }
+                if (copiedName == null) {
+                    statusMessage = "Ikon tidak bisa dibuka. Coba gambar PNG, JPEG, atau WebP."
+                } else if (packs.any { it.id == targetPackId }) {
+                    savePacks(packs.map { pack ->
+                        if (pack.id == targetPackId) pack.copy(iconSourceFile = copiedName) else pack
+                    })
+                    statusMessage = "Ikon pack disimpan secara lokal."
+                } else {
+                    store.sourceFile(copiedName).delete()
+                }
+            }
+        }
+    }
+
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -287,6 +309,9 @@ private fun PeelwaveApp() {
                 pack = selectedPack,
                 store = store,
                 onBack = { currentScreen = "home"; selectedPackId = null },
+                onSetIcon = {
+                    iconPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
                 onImport = {
                     if (selectedPack.assets.size >= PackRules.MAX_STICKERS) {
                         statusMessage = "Pack sudah mencapai batas 30 item."
@@ -539,8 +564,16 @@ private fun HomeScreen(
                                     .background(RaisedInk),
                                 contentAlignment = Alignment.Center
                             ) {
+                                val icon = pack.iconSourceFile?.let { store.sourceFile(it) }
                                 val cover = pack.assets.firstOrNull()
-                                if (cover != null) {
+                                if (icon != null && icon.isFile) {
+                                    AsyncImage(
+                                        model = icon,
+                                        contentDescription = "Ikon " + pack.name,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else if (cover != null) {
                                     AsyncImage(
                                         model = store.sourceFile(cover.sourceFile),
                                         contentDescription = "Pratinjau " + pack.name,
@@ -616,6 +649,7 @@ private fun PackScreen(
     store: LocalPackStore,
     onBack: () -> Unit,
     onImport: () -> Unit,
+    onSetIcon: () -> Unit,
     onSelectAsset: (StickerAsset) -> Unit,
     onRename: (String, String) -> Unit,
     onDelete: () -> Unit,
@@ -640,7 +674,19 @@ private fun PackScreen(
             StatPill(ready.toString() + " / 30 siap")
             StatPill((pack.assets.size - ready).toString() + " draft")
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = onSetIcon,
+            modifier = Modifier.fillMaxWidth().height(42.dp),
+            border = BorderStroke(1.dp, Hairline)
+        ) {
+            Text(
+                if (pack.iconSourceFile == null) "Pilih ikon pack" else "Ganti ikon pack",
+                color = Foreground,
+                fontSize = 13.sp
+            )
+        }
+        Spacer(Modifier.height(10.dp))
         Button(
             onClick = onImport,
             modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -1147,6 +1193,7 @@ private class LocalPackStore(context: Context) {
             sourceFile(asset.sourceFile).delete()
             asset.exportFile?.let { exportedFile(it).delete() }
         }
+        pack.iconSourceFile?.let { sourceFile(it).delete() }
     }
 
     fun validatePack(pack: StickerPack): List<String> {
@@ -1301,6 +1348,7 @@ private class LocalPackStore(context: Context) {
             .put("name", pack.name)
             .put("author", pack.author)
             .put("assets", assetsJson)
+            .put("iconSourceFile", pack.iconSourceFile ?: JSONObject.NULL)
     }
 
     private fun packFromJson(json: JSONObject): StickerPack {
@@ -1342,7 +1390,8 @@ private class LocalPackStore(context: Context) {
             id = json.optString("id", UUID.randomUUID().toString()),
             name = json.optString("name", "Pack tanpa nama"),
             author = json.optString("author", ""),
-            assets = assetsList
+            assets = assetsList,
+            iconSourceFile = json.optString("iconSourceFile").takeIf { it.isNotBlank() && it != "null" }
         )
     }
 }
