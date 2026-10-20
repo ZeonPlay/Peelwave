@@ -1306,6 +1306,10 @@ private class LocalPackStore(context: Context) {
             )
         }
         val issues = PackRules.validatePack(facts).toMutableList()
+        val draftCount = pack.assets.count { it.exportFile == null }
+        if (draftCount > 0) {
+            issues += "$draftCount sticker masih berupa draft. Selesaikan atau hapus draft sebelum menambahkan pack ke WhatsApp."
+        }
         val trayName = pack.trayIconFile
         val trayFile = trayName?.let { exportedFile(it) }
         val trayOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
