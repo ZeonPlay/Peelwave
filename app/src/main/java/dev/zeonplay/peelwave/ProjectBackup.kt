@@ -149,7 +149,7 @@ internal object ProjectBackup {
     internal fun isAllowedEntryName(name: String, isDirectory: Boolean = false): Boolean {
         val normalized = if (isDirectory) name.removeSuffix("/") else name
         if (normalized.isBlank() || normalized.startsWith("/") ||
-            normalized.contains('\\\\') || normalized.contains('\\u0000')
+            normalized.contains('\\') || normalized.any { it.code == 0 }
         ) {
             return false
         }
@@ -179,7 +179,7 @@ internal object ProjectBackup {
             !name.startsWith(".") &&
             '/' !in name &&
             '\\' !in name &&
-            '\u0000' !in name &&
+            name.none { it.code == 0 } &&
             ':' !in name
 
     private fun validateWorkspace(workspace: File): String? {
