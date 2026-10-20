@@ -150,7 +150,8 @@ class PeelwaveContentProvider : ContentProvider() {
                     "",
                     "",
                     "",
-                    "1",
+                    File(File(requireNotNull(context).filesDir, "peelwave"), "packs.json")
+                        .lastModified().toString(),
                     0,
                     0
                 )
