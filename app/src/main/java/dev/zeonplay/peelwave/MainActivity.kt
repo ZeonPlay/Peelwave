@@ -1061,7 +1061,8 @@ private class LocalPackStore(context: Context) {
                 exists = file.exists(),
                 width = if (file.exists()) options.outWidth else 0,
                 height = if (file.exists()) options.outHeight else 0,
-                bytes = if (file.exists()) file.length() else 0L
+                bytes = if (file.exists()) file.length() else 0L,
+                mimeType = options.outMimeType ?: ""
             )
         }
         return PackRules.validatePack(facts)
@@ -1121,7 +1122,7 @@ private class LocalPackStore(context: Context) {
                     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeFile(outputFile.absolutePath, options)
                     val issues = PackRules.validateFiles(
-                        listOf(StickerFileFacts(outputFile.name, true, options.outWidth, options.outHeight, outputFile.length()))
+                        listOf(StickerFileFacts(outputFile.name, true, options.outWidth, options.outHeight, outputFile.length(), options.outMimeType.orEmpty()))
                     )
                     if (issues.isEmpty()) return RenderOutcome(fileName = outputFile.name)
                 }
