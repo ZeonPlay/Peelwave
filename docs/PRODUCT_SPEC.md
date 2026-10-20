@@ -28,6 +28,8 @@ The initial release is Android-only and focused on static stickers.
 
 ### Pack management
 - Create, rename, and delete local packs.
+- Let the user choose a pack tray icon from a sticker or a separate image; crop/fit it and validate the generated icon against the current WhatsApp integration requirements.
+- Store the selected icon as pack metadata and keep it distinct from the stickers inside the pack.
 - Keep the pack name and creator/author metadata.
 - Display draft count separately from rendered, validated sticker count.
 - Allow at most 30 sticker items per pack; a pack cannot be exported to WhatsApp until it has at least 3 valid stickers.
@@ -43,6 +45,7 @@ The initial release is Android-only and focused on static stickers.
 
 ### Output and validation
 - Render static output to WebP at exactly 512 × 512 pixels.
+- Render and validate the tray icon separately (the official sample documents a 96 × 96 icon with a 50 KB size limit; re-check the integration README before release).
 - Target a maximum of 100 KB per static sticker.
 - Verify output existence, dimensions, format, and file size.
 - Validate pack count (3–30) and explain every blocking issue.
@@ -69,7 +72,7 @@ The initial release is Android-only and focused on static stickers.
 
 **In the first usable prototype:** local pack creation, local pack listing, image import into private storage, editor canvas prototype, basic text/emoji layers, crop/fit toggle, undo/redo, and a static WebP rendering pipeline with validation.
 
-**Not to be represented as complete until implemented and verified:** robust background removal, silhouette outline around cut-out objects, persistent versioned layer projects, portable project archive import/export, and the WhatsApp provider/add-pack flow.
+**Not to be represented as complete until implemented and verified:** pack icon selection/rendering, robust background removal, silhouette outline around cut-out objects, persistent versioned layer projects, portable project archive import/export, and the WhatsApp provider/add-pack flow.
 
 ## Acceptance criteria for a release candidate
 
