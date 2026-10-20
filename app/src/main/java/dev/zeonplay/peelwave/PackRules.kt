@@ -14,6 +14,8 @@ object PackRules {
     const val MAX_STICKERS = 30
     const val CANVAS_SIZE = 512
     const val MAX_STATIC_BYTES = 100 * 1024L
+    const val TRAY_ICON_SIZE = 96
+    const val MAX_TRAY_ICON_BYTES = 50 * 1024L
 
     fun validateStickerCount(count: Int): List<String> = buildList {
         if (count < MIN_STICKERS) {
