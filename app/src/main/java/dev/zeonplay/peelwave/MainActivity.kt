@@ -1322,21 +1322,20 @@ private class LocalPackStore(context: Context) {
         if (draftCount > 0) {
             issues += "$draftCount sticker masih berupa draft. Selesaikan atau hapus draft sebelum menambahkan pack ke WhatsApp."
         }
-        val trayName = pack.trayIconFile
-        val trayFile = trayName?.let { exportedFile(it) }
+        val trayFile = pack.trayIconFile?.let { exportedFile(it) }
         val trayOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         if (trayFile != null && trayFile.isFile) {
             BitmapFactory.decodeFile(trayFile.absolutePath, trayOptions)
         }
-        if (trayFile == null || !trayFile.isFile) {
-            issues += "Ikon pack belum disiapkan. Pilih ikon pack terlebih dahulu."
-        } else {
-            if (trayOptions.outWidth != PackRules.TRAY_ICON_SIZE ||
-                trayOptions.outHeight != PackRules.TRAY_ICON_SIZE
-            ) issues += "Ikon WhatsApp harus berukuran 96 × 96 piksel."
-            if (trayOptions.outMimeType != "image/png") issues += "Ikon WhatsApp harus berformat PNG."
-            if (trayFile.length() > PackRules.MAX_TRAY_ICON_BYTES) issues += "Ukuran ikon WhatsApp maksimal 50 KB."
-        }
+        issues += PackRules.validateTrayIcon(
+            TrayIconFacts(
+                exists = trayFile?.isFile == true,
+                width = trayOptions.outWidth,
+                height = trayOptions.outHeight,
+                bytes = trayFile?.takeIf { it.isFile }?.length() ?: 0L,
+                mimeType = trayOptions.outMimeType.orEmpty()
+            )
+        )
         return issues
     }
 
