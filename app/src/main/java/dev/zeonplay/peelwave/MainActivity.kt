@@ -11,6 +11,7 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
@@ -33,6 +34,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -157,6 +160,11 @@ private fun PeelwaveApp() {
     val selectedPack = packs.firstOrNull { it.id == selectedPackId }
     val selectedAsset = selectedPack?.assets?.firstOrNull { it.id == selectedAssetId }
 
+    BackHandler(enabled = currentScreen == "pack") {
+        currentScreen = "home"
+        selectedPackId = null
+    }
+
     fun savePacks(updated: List<StickerPack>) {
         store.save(updated)
         packs = updated
@@ -239,6 +247,7 @@ private fun PeelwaveApp() {
             }
         }
 
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
         when {
             currentScreen == "home" -> HomeScreen(
                 packs = packs,
@@ -307,6 +316,7 @@ private fun PeelwaveApp() {
                 onCreatePack = { showCreatePack = true },
                 onSelectPack = { pack -> selectedPackId = pack.id; currentScreen = "pack" }
             )
+        }
         }
 
         if (statusMessage != null) {
@@ -696,13 +706,15 @@ private fun EditorScreen(
     val scope = rememberCoroutineScope()
     val current = history.getOrElse(historyIndex) { asset }
 
+    BackHandler { onBack(current) }
+
     fun push(next: StickerAsset) {
         val trimmed = history.take(historyIndex + 1)
         history = (trimmed + next.copy(exportFile = null)).takeLast(30)
         historyIndex = history.lastIndex
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically
