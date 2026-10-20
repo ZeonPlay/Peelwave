@@ -203,7 +203,8 @@ class PeelwaveContentProvider : ContentProvider() {
                     val stickerRecords = mutableListOf<StickerRecord>()
                     var validPack = true
                     for (assetIndex in 0 until assets.length()) {
-                        val asset = assets.optJSONObject(assetIndex) ?: run {
+                        val asset = assets.optJSONObject(assetIndex)
+                        if (asset == null) {
                             validPack = false
                             break
                         }
