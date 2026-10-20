@@ -16,7 +16,7 @@ object PackRules {
 
     fun validateStickerCount(count: Int): List<String> = buildList {
         if (count < MIN_STICKERS) {
-            add("${'$'}{count}: pack perlu minimal " + MIN_STICKERS + " sticker yang sudah diekspor.")
+            add("Pack perlu minimal " + MIN_STICKERS + " sticker yang sudah diekspor.")
         }
         if (count > MAX_STICKERS) {
             add("Satu pack maksimal " + MAX_STICKERS + " sticker.")
