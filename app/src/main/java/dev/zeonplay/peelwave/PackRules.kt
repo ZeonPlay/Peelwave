@@ -5,7 +5,8 @@ data class StickerFileFacts(
     val exists: Boolean,
     val width: Int,
     val height: Int,
-    val bytes: Long
+    val bytes: Long,
+    val mimeType: String = "image/webp"
 )
 
 object PackRules {
@@ -28,6 +29,9 @@ object PackRules {
             if (!file.exists) {
                 add(file.name + ": file hasil ekspor tidak ditemukan.")
                 return@forEach
+            }
+            if (file.mimeType != "image/webp") {
+                add(file.name + ": format hasil ekspor wajib WebP.")
             }
             if (file.width != CANVAS_SIZE || file.height != CANVAS_SIZE) {
                 add(file.name + ": ukuran wajib 512 × 512 piksel.")
