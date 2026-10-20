@@ -315,7 +315,13 @@ private fun PeelwaveApp() {
             currentScreen == "home" -> HomeScreen(
                 packs = packs,
                 store = store,
-                onCreatePack = { showCreatePack = true },
+                onCreatePack = {
+                    if (packs.size >= PackRules.MAX_PACKS) {
+                        statusMessage = "WhatsApp mendukung maksimal 10 pack per aplikasi. Ekspor backup lalu hapus pack yang memang tidak lagi diperlukan."
+                    } else {
+                        showCreatePack = true
+                    }
+                },
                 onSelectPack = { pack ->
                     selectedPackId = pack.id
                     currentScreen = "pack"
