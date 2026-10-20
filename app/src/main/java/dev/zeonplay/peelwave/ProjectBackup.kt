@@ -142,15 +142,18 @@ internal object ProjectBackup {
     }
 
     internal fun isAllowedEntryName(name: String, isDirectory: Boolean = false): Boolean {
-        if (name.isBlank() || name.startsWith("/") || name.contains('\\') || name.contains('\u0000')) {
+        val normalized = if (isDirectory) name.removeSuffix("/") else name
+        if (normalized.isBlank() || normalized.startsWith("/") ||
+            normalized.contains('\\\\') || normalized.contains('\\u0000')
+        ) {
             return false
         }
-        if (name.split('/').any { it == "." || it == ".." || it.isBlank() }) return false
+        if (normalized.split('/').any { it == "." || it == ".." || it.isBlank() }) return false
 
-        if (isDirectory) return name == "images/" || name == "exports/"
-        if (name == "packs.json") return true
+        if (isDirectory) return normalized == "images" || normalized == "exports"
+        if (normalized == "packs.json") return true
 
-        val parts = name.split('/')
+        val parts = normalized.split('/')
         if (parts.size != 2 || parts[0] !in setOf("images", "exports")) return false
         return isSafeFileName(parts[1])
     }
