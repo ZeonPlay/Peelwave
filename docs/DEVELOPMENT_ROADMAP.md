@@ -7,6 +7,7 @@
 
 ## Milestone 1 — Local sticker workshop
 - [ ] Stable pack creation, rename, and delete.
+- [ ] Select/import a pack tray icon and render an integration-valid icon.
 - [ ] Photo Picker import copied to app-private storage.
 - [ ] Recoverable local project storage and atomic saves.
 - [ ] Editor canvas, crop/fit, text, emoji, layers, undo/redo.
