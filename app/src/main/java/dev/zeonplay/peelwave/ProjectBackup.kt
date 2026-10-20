@@ -1,6 +1,7 @@
 package dev.zeonplay.peelwave
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -207,6 +208,23 @@ internal object ProjectBackup {
                     val icon = File(workspace, "images/$iconName")
                     if (!icon.isFile || icon.length() !in 1..MAX_ENTRY_BYTES) {
                         return "Backup tidak lengkap: ikon pack tidak ditemukan atau terlalu besar."
+                    }
+                }
+                val trayValue = pack.opt("trayIconFile")
+                if (trayValue != null && trayValue != JSONObject.NULL) {
+                    val trayName = trayValue.toString()
+                    if (!isSafeFileName(trayName)) return "Nama file ikon WhatsApp dalam backup tidak aman."
+                    val trayFile = File(workspace, "exports/$trayName")
+                    if (!trayFile.isFile || trayFile.length() !in 1..PackRules.MAX_TRAY_ICON_BYTES) {
+                        return "Backup tidak lengkap: ikon WhatsApp tidak ditemukan atau terlalu besar."
+                    }
+                    val trayOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(trayFile.absolutePath, trayOptions)
+                    if (trayOptions.outWidth != PackRules.TRAY_ICON_SIZE ||
+                        trayOptions.outHeight != PackRules.TRAY_ICON_SIZE ||
+                        trayOptions.outMimeType != "image/png"
+                    ) {
+                        return "Backup memiliki ikon WhatsApp dengan format atau dimensi yang salah."
                     }
                 }
                 val assets = pack.optJSONArray("assets")
